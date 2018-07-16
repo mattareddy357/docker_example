@@ -1,0 +1,2 @@
+docker build -t debian_apach2:latest .
+docker run -it -d --name c3 -p 8885:80 debian_apach2:latest

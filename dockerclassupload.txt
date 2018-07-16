@@ -1,0 +1,268 @@
+docker-ce installation on ubuntu 16.04
+
+apt-get update
+apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+add-apt-repository \
+   "deb https://download.docker.com/linux/$(. /etc/os-release; echo "$ID") \
+   $(lsb_release -cs) \
+   stable"
+apt-get update && apt-get install -y docker-ce=$(apt-cache madison docker-ce | grep 17.12 | head -1 | awk '{print $3}')
+
+
+=================================================================================================================
+
+
+dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2377 &
+root@ip-172-31-39-221:~# ps aux | grep docker
+root      2073  3.5  5.0 490896 51152 ?        Ssl  01:55   0:00 /usr/bin/dockerd -H fd://
+
+
+docker -H 18.222.145.91:2375 ps
+====================================================================================================
+docker commands:
+1.docker run -i -t ubuntu /bin/bash
+
+2.docker run -i -t -d –name c1 ubuntu:14.04
+docker exec -it c1 bash
+apt-get update
+apt-get install apache2
+service apache2 start
+
+3.docker commit -m "apache2 installed" c1 apache:1.0
+
+4.docker run -i -t -d --name c2  -v /root/website/:/var/www/html/  -p 8881:80 apache:1.0
+ 
+5. docker run -i -t -d --name c3 -p 8882:80 apache:1.0
+
+6. docker run -it -d --name c4 --net=host apache:1.0
+
+
+
+
+
+====================================================================
+https://docs.docker.com/engine/reference/builder/#exec-form-entrypoint-example
+
+
+cd debianapache2
+vi Dockerfile
+
+FROM debian:stable
+RUN apt-get update && apt-get install -y --force-yes apache2
+RUN ln -sf /dev/stdout /var/log/apache2/access.log \
+	&& ln -sf /dev/stderr /var/log/apache2/error.log
+EXPOSE 80 443
+VOLUME ["/var/www", "/var/log/apache2", "/etc/apache2"]
+ENTRYPOINT ["/usr/sbin/apache2ctl", "-D", "FOREGROUND"]
+
+
+
+docker build -t debian_apach2:latest .
+docker run -it -d --name c3 -p 8885:80 debian_apach2:latest
+
+
+
+
+docker run -it -d --name httpd -p 8881:80 -v ./website/:/usr/local/apache2/htdocs/ httpd:latest
+httpd: /usr/local/apache2/htdocs#
+https://github.com/docker-library/httpd/blob/3af22f20b54cbb7c76ef4c3b12bd9dcf6cae862b/2.4/Dockerfile
+
+https://hub.docker.com/_/tomcat/
+docker run -it -d --name tomcat -p 8882:8080 tomcat:latest
+https://github.com/docker-library/tomcat/blob/778588dc5bfca8086215ff2706dabcd823dc6008/7/jre7/Dockerfile
+
+
+cd ubuntuapache2
+vi Dockerfile
+
+FROM ubuntu:latest
+RUN apt-get update
+RUN apt-get install -y apache2
+RUN ln -sf /dev/stdout /var/log/apache2/access.log \
+	&& ln -sf /dev/stderr /var/log/apache2/error.log
+
+VOLUME ["/var/log/apache2/"]
+EXPOSE 80
+ENTRYPOINT ["/usr/sbin/apache2ctl", "-D", "FOREGROUND"]
+
+docker build -t ubuntu_apach2:latest .
+docker run -it -d --name c4 -p 8886:80 ubuntu_apach2:latest
+
+
+
+cd postfix
+vi Dockerfile
+FROM ubuntu:latest
+RUN apt-get update && \
+   apt-get install -y supervisor && \
+   echo postfix postfix/main_mailer_type string "'Internet Site'" | debconf-set-selections && \
+   echo postfix postfix/mailname string temporary.example.com | debconf-set-selections && \
+   echo postfix postfix/mynetworks string "127.0.0.0/8" | debconf-set-selections && \
+   apt-get --yes install postfix mailutils ca-certificates libsasl2-modules
+
+ENV gmail mailaddress@gmail.com
+ENV gmailpasswd pasword
+RUN echo "[smtp.gmail.com]:587    $gmail:$gmailpasswd" > /etc/postfix/sasl_passwd 
+RUN chmod 600 /etc/postfix/sasl_passwd
+RUN postconf -e relayhost="[smtp.gmail.com]:587" && \
+	postconf -e smtp_use_tls="yes" && \
+	postconf -e mydestination="localhost.localdomain, localhost" && \
+	postconf -e smtpd_banner='$myhostname ESMTP $mail_name' && \
+	postconf -e smtp_sasl_auth_enable="yes" && \
+	postconf -e smtp_sasl_security_options="" && \
+	postconf -e smtp_sasl_password_maps="hash:/etc/postfix/sasl_passwd" && \
+	postconf -e smtp_tls_CAfile="/etc/ssl/certs/ca-certificates.crt" 
+
+RUN postmap /etc/postfix/sasl_passwd
+#COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+EXPOSE 25
+#CMD /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+CMD ["/usr/sbin/postfix","-c","/etc/postfix","start"]
+
+
+
+
+example:
+https://hub.docker.com/r/tozd/postfix/~/dockerfile/
+
+
+
+
+=========================================================================================================================
+docker registry
+
+
+
+
+
+docker run -d -it --restart=always -e REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY='/data' --net=host -v /root/data:/data --name privateregistry -p 5000:5000 registry:2 
+
+
+docker run -d -it --name registry-web -e REGISTRY_URL=http://18.216.4.118:5000/v2 -e REGISTRY_NAME=18.216.4.118:5000 -p 8080:8080 hyper/docker-registry-web
+
+echo "18.216.4.118 privateregistry" >> /etc/hosts
+
+curl -X GET http://18.216.4.118:5000/v2/_catalog 
+curl -X GET http://18.216.4.118:5000/v2/image/tags/list
+
+echo "{ \"insecure-registries\":[\"privateregistry:5000\"] }" > /etc/docker/daemon.json
+
+docker tag image privateregistry:5000/repository:tag
+docker push privateregistry:5000/repository:tag
+
+docker pull ubuntu:14.04
+docker tag ubuntu:14.04 privateregistry:5000/ubuntu:14.04
+docker push privateregistry:5000/ubuntu:14.04
+
+
+
+=========================================================================================================================
+docker compose
+
+curl -L https://github.com/docker/compose/releases/download/1.21.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+
+docker-compose up
+docker-compose up -d
+docker-compose ps
+docker-compose run web env
+docker-compose stop
+docker-compose down --volumes
+
+
+
+https://docs.docker.com/engine/examples/running_ssh_service/
+
+https://docs.docker.com/compose/django/
+
+===============================================================================================================================================================
+docker swarm
+
+Manager: docker swarm init --advertise-addr <myvm1 ip>
+Workers: docker swarm join --token <token> <myvm ip>:<port>
+add manager: docker swarm join-token manager
+
+
+docker node update --availability drain <NODE>
+When you drain a node, the scheduler reassigns any tasks running on the node to other available worker nodes in the swarm. It also prevents the scheduler from assigning tasks to the node
+
+docker node update --availability drain master1
+remove node: docker node rm --force node1  
+
+
+To cleanly re-join a manager node to a cluster:
+4.	To demote the node to a worker, run docker node demote <NODE>.
+5.	To remove the node from the swarm, run docker node rm <NODE>.
+6.	Re-join the node to the swarm with a fresh state using docker swarm join.
+
+
+docker swarm leave --force
+
+docker node ls
+docker service ls
+docker service inspect --pretty helloworld
+
+
+Command	Description
+docker service create	Create a new service
+docker service inspect	Display detailed information on one or more services
+docker service logs	Fetch the logs of a service or task
+docker service ls	List services
+docker service ps	List the tasks of one or more services
+docker service rm	Remove one or more services
+docker service rollback	Revert changes to a service’s configuration
+docker service scale	Scale one or multiple replicated services
+docker service update	Update a service
+
+
+
+docker service create --name frontend --replicas 2 --publish 8080:80 nginx
+
+
+docker service ls
+docker service ls -f "id=0bcjw"
+docker service ls -f name=frontend
+
+docker service inspect --pretty frontend
+
+docker service ps redis
+
+
+docker service scale  frontend=3
+
+docker service update --limit-memory 500 frontend
+
+docker service rm redis
+
+
+
+
+============================
+
+
+docker service create --name redis redis:3.0.6
+docker service create --name redis --replicas=3 --hostname myredis redis:3.0.6
+
+
+docker network create --driver overlay my-networkdocker service ps redis
+docker service create \
+  --replicas 3 \
+  --network my-network \
+  --name my-web \
+  nginx
+
+
+
+
+
+
+
+
+
+

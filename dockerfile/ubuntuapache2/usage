@@ -1,0 +1,2 @@
+docker build -t ubuntu_apach2:latest .
+docker run -it -d --name c4 -p 8886:80 ubuntu_apach2:latest
